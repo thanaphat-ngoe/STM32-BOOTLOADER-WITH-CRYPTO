@@ -67,7 +67,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${CMAKE_PROJECT_NAME}> ${CMAKE_PROJECT_NAME}.bin
     BYPRODUCTS ${CMAKE_PROJECT_NAME}.bin
-    COMMENT "Generating Bootloader BIN file..."
+    COMMENT "[1/2] Generating Bootloader BIN file..."
 )
 
 # Find Python
@@ -75,9 +75,9 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 # Run the Unified Builder Script
 add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
-    COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/BOOTLOADER-PADDER-TOOL.py
+    COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/FIRMWARE-MERGE-TOOL.py
 		${CMAKE_SOURCE_DIR}/build/Release/STM32-BOOTLOADER-WITH-CRYPTO.bin  # <--- Arg 1: Raw Bootloader
 		${CMAKE_SOURCE_DIR}/STM32-FW-IMAGE-SIGNED.bin                       # <--- Arg 2: Signed Firmware
-		${CMAKE_SOURCE_DIR}/FULL_FIRMWARE.bin                               # <--- Arg 3: Full Image (Bootloader + Firmware)
-    COMMENT "Padding Bootloader and Assembling Firmware..."
+		${CMAKE_SOURCE_DIR}/STM32-FW-FULL-IMAGE.bin                         # <--- Arg 3: Full Image (Bootloader + Firmware)
+    COMMENT "[2/2] Padding Bootloader and Assembling Firmware..."
 )

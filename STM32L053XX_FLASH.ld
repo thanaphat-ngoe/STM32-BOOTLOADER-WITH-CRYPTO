@@ -57,7 +57,6 @@ MEMORY
 {
 	RAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 8K
 	FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 20K
-	/* FLASH SHOULD BE 20K PARTITIONED FOR BOOTLOADER SECTION BUT 64K FOR DEBUGGING MODE */
 }
 
 /* Highest address of the user mode stack */
@@ -216,7 +215,6 @@ SECTIONS
 		*(.bss)
 		*(.bss*)
 		*(COMMON)
-
 		. = ALIGN(4);
 		_ebss = .; /* define a global symbol at bss end */
 		__bss_end__ = _ebss;
