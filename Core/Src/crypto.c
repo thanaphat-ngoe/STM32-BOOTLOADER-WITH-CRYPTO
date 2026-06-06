@@ -1,16 +1,18 @@
 #include "crypto.h"
-
-#include "uECC.h"
 #include "cmox_crypto.h"
 
-const uint8_t FIRMWARE_PUBLIC_KEY[64] = {
-    // PUBLIC KEY X
+#define ECC_WORK_BUFFER_SIZE 2048
+
+static uint8_t EccWorkBuffer[ECC_WORK_BUFFER_SIZE];
+
+const uint8_t FIRMWARE_PUBLIC_KEY[CMOX_ECC_SECP256R1_PUBKEY_LEN] = {
+    // PUBLIC KEY X (32 Bytes)
     0x0c, 0x25, 0x66, 0x59, 0xb6, 0xcf, 0x9b, 0xd2, 
 	0x2b, 0x46, 0xd5, 0x5a, 0x56, 0x20, 0x3e, 0x5b, 
 	0x90, 0xcb, 0x60, 0x54, 0x3c, 0xc1, 0xcc, 0xbe, 
 	0x39, 0x44, 0x7c, 0xf7, 0x04, 0x12, 0x0d, 0x2e,
 	
-    // PUBLIC KEY Y
+    // PUBLIC KEY Y (32 Bytes)
 	0xd2, 0x5a, 0x20, 0x2b, 0x02, 0x18, 0xb4, 0xab, 
 	0xca, 0x29, 0x36, 0x37, 0x00, 0x42, 0xb1, 0x73, 
 	0xb6, 0x31, 0xb2, 0x7a, 0x64, 0x94, 0x5d, 0x3a, 
@@ -25,7 +27,7 @@ bool Verify_Firmware_Signature(uint32_t firmware_start_address) {
     uint8_t hash_result[CMOX_SHA256_SIZE];
     uint32_t payload_address = firmware_start_address + sizeof(FirmwareHeader_TypeDef);
 
-    cmox_hash_retval_t retval = cmox_hash_compute(
+    cmox_hash_retval_t hash_ret = cmox_hash_compute(
         CMOX_SHA256_ALGO,                  
         (const uint8_t*)payload_address, 
         header->Size,                     
@@ -34,24 +36,36 @@ bool Verify_Firmware_Signature(uint32_t firmware_start_address) {
         NULL                             
     );
 
-    // ตรวจสอบว่าคณิตศาสตร์ของ ST ทำงานสำเร็จหรือไม่
-    if (retval != CMOX_HASH_SUCCESS) {
+    if (hash_ret != CMOX_HASH_SUCCESS) {
         return false;
     }
 
-    // 3. เตรียมข้อมูล Signature (R และ S) ให้ micro-ecc (เหมือนเดิม)
-    uint8_t signature[64];
+    uint8_t signature[CMOX_ECC_SECP256R1_SIG_LEN];
     memcpy(&signature[0],  header->Signature_R, 32);
     memcpy(&signature[32], header->Signature_S, 32);
 
-    // 4. ตรวจสอบความถูกต้องด้วย micro-ecc (เหมือนเดิม)
-    int is_valid = uECC_verify(
-        FIRMWARE_PUBLIC_KEY, 
-        hash_result, 
-        sizeof(hash_result), 
-        signature, 
-        uECC_secp256r1()
+    cmox_ecc_handle_t EccCtx;
+    uint32_t fault_check = 0;
+    
+    cmox_ecc_construct(&EccCtx, CMOX_MATH_FUNCS_SMALL, EccWorkBuffer, ECC_WORK_BUFFER_SIZE);
+
+    cmox_ecc_retval_t ecc_ret = cmox_ecdsa_verify(
+        &EccCtx,
+        CMOX_ECC_SECP256R1_LOWMEM,
+        FIRMWARE_PUBLIC_KEY,
+        CMOX_ECC_SECP256R1_PUBKEY_LEN,  
+        hash_result,
+        CMOX_SHA256_SIZE,            
+        signature,
+        CMOX_ECC_SECP256R1_SIG_LEN,     
+        &fault_check 
     );
 
-    return (is_valid == 1);
+    cmox_ecc_cleanup(&EccCtx);
+
+    if (ecc_ret == CMOX_ECC_AUTH_SUCCESS && fault_check == CMOX_ECC_AUTH_SUCCESS) {
+        return true;
+    }
+
+    return false;
 }

@@ -31,6 +31,7 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -92,9 +93,15 @@ typedef struct FirmwareHeader_TypeDef {
 	uint32_t Size;
 	uint32_t Signature_R[8];
 	uint32_t Signature_S[8];
-	uint32_t Reserved[43];
-	uint32_t CRC32;
+	uint32_t Reserved[44];
 } FirmwareHeader_TypeDef;
+
+typedef struct TIMER_TypeDef {
+    uint32_t WaitTime;
+    uint32_t TargetTime;
+    bool AutoReset;
+    bool HasElapsed;
+} TIMER_TypeDef;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -129,42 +136,37 @@ void Error_Handler(void);
 #define TCK_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
-#define AL_MESSAGE_SEQUENCE_OBSERVED                 (0x01)
-#define AL_MESSAGE_FIRMWARE_UPDATE_REQUEST           (0x02)
-#define AL_MESSAGE_SENT_CURRENT_FIRMWARE_VERSION     (0x03)
-#define AL_MESSAGE_SENT_NEW_FIRMWARE_HEADER_DATA     (0x04)
-#define AL_MESSAGE_RECEIVED_NEW_FIRMWARE_HEADER_DATA (0x05)
-#define AL_MESSAGE_FIRMWARE_HEADER_WRITTEN           (0x06)
-#define AL_MESSAGE_RECEIVED_NEW_FIRMWARE_DATA        (0x07)
-#define AL_MESSAGE_UPDATE_SUCCESSFUL                 (0x08)
-#define AL_MESSAGE_NACK                              (0x09)
+#define AL_MESSAGE_BOOTLOADER_MODE                   (0x01)
+#define AL_MESSAGE_SYNCHRONIZE_MODE                  (0x02)
+#define AL_MESSAGE_SENT_NEW_FIRMWARE_HEADER		     (0x03)	
+#define AL_MESSAGE_RECEIVED_NEW_FIRMWARE_HEADER      (0x04)
+#define AL_MESSAGE_VERIFIED_NEW_FIRMWARE_HEADER      (0x05)
+#define AL_MESSAGE_ERASED_FLASH                      (0x06)
+#define AL_MESSAGE_WROTE_NEW_FIRMWARE_HEADER         (0x07)
+#define AL_MESSAGE_RECEIVED_NEW_FIRMWARE_DATA        (0x08)
+#define AL_MESSAGE_UPDATE_SUCCESSFUL                 (0x09)
+#define AL_MESSAGE_ABORT_OPERATION                   (0x0A)
 
 #define WOLFCRYPT_ONLY
 #define SINGLE_THREADED
 #define NO_FILESYSTEM
 #define HAVE_ECC
 #define HAVE_SHA256
-#define USE_FAST_MATH        // Highly recommended for STM32 to speed up ECC
-#define FP_MAX_BITS 512      // Required for SECP256R1 fast math
+#define USE_FAST_MATH 
+#define FP_MAX_BITS                  (512)
 #define TFM_TIMING_RESISTANT
 
-#define DEVICE_ID                           (0x01)
+#define MAGIC_NUMBER 				 (0x5A5A5A5AU)
+#define DEVICE_ID                    (0x00000001U)
 
-#define SYNC_SEQ_0                          (0x01)
-#define SYNC_SEQ_1                          (0x02)
-#define SYNC_SEQ_2                          (0x03)
-#define SYNC_SEQ_3                          (0x04)
+#define DEFAULT_TIMEOUT              (5000)
 
-#define DEFAULT_TIMEOUT                     (1000)
-
-#define USER_FLASH_SIZE                     (0x10000U) 
-#define BOOTLOADER_SIZE                     (0x5000U)                                                              // 20 KByte -> (20480 Byte) (0x5000)
-#define MAX_FIRMWARE_IMAGE_SIZE             ((USER_FLASH_SIZE - BOOTLOADER_SIZE) / 2)                              // 44 (45056 Byte) / 2 -> (22528 Byte) (0x5800)
+#define USER_FLASH_SIZE              (0x10000U) 
+#define BOOTLOADER_SIZE              (0x7800U)                                                       // 30 KByte -> (30720 Byte) (0x7800)
+#define MAX_FIRMWARE_IMAGE_SIZE      (USER_FLASH_SIZE - BOOTLOADER_SIZE)                             // 34 KByte -> (34816 Byte) (0x8800)
  
-#define FIRMWARE_IMAGE_START_ADDRESS_BANK_1 (FLASH_BASE + BOOTLOADER_SIZE)                                         // 0x08000000 + 0x5000 (0x08005000)
-#define FIRMWARE_ENTRY_POINT_ADDRESS_BANK_1 (FIRMWARE_IMAGE_START_ADDRESS_BANK_1 + sizeof(FirmwareHeader_TypeDef)) // 0x08005000 + 0x0100 (0x08005100)
-#define FIRMWARE_IMAGE_START_ADDRESS_BANK_2 (FIRMWARE_IMAGE_START_ADDRESS_BANK_1 + MAX_FIRMWARE_IMAGE_SIZE)        // 0x08005000 + 0x5800 (0x0800A800)
-#define FIRMWARE_ENTRY_POINT_ADDRESS_BANK_2 (FIRMWARE_IMAGE_START_ADDRESS_BANK_2 + sizeof(FirmwareHeader_TypeDef)) // 0x0800A800 + 0x0100 (0x0800A900)
+#define FIRMWARE_IMAGE_START_ADDRESS (FLASH_BASE + BOOTLOADER_SIZE)                                  // 0x08000000 + 0x7800 (0x08007800)
+#define FIRMWARE_ENTRY_POINT_ADDRESS (FIRMWARE_IMAGE_START_ADDRESS + sizeof(FirmwareHeader_TypeDef)) // 0x08007800 + 0x0100 (0x08007900)
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

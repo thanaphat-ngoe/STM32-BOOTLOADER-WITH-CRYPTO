@@ -16,7 +16,7 @@ set(MX_Include_Dirs
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/CMSIS/Device/ST/STM32L0xx/Include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/CMSIS/Include
 	
-	${CMAKE_CURRENT_SOURCE_DIR}/../../micro-ecc-1.1
+	#STM32Cube Expansion Crypto Library
 	${CMAKE_CURRENT_SOURCE_DIR}/../../STM32CubeExpansion_Crypto_V4.6.0/Middlewares/ST/STM32_Cryptographic/include
 )
 
@@ -33,9 +33,8 @@ set(MX_Application_Src
 	${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/ring-buffer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/crc8.c
 
-	${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/crypto.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/cmox-low-level.c
-	${CMAKE_CURRENT_SOURCE_DIR}/../../micro-ecc-1.1/uECC.c
+	${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/crypto.c
 )
 
 # STM32 HAL/LL Drivers

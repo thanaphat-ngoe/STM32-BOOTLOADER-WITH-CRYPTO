@@ -31,9 +31,9 @@ extern "C"
   */
 typedef struct
 {
-  cmox_membuf_handle_st membuf_str;       /*!< Memory buffer structure */
-  cmox_math_funcs_t     math_ptr;         /*!< Math customization structure */
-  uint32_t              magic_num_check;  /*!< Magic number for diagnostic checks */
+	cmox_membuf_handle_st membuf_str;       /*!< Memory buffer structure */
+	cmox_math_funcs_t     math_ptr;         /*!< Math customization structure */
+	uint32_t              magic_num_check;  /*!< Magic number for diagnostic checks */
 } cmox_ecc_handle_t;
 
 /**

@@ -3,17 +3,16 @@
 
 #include "main.h"
 
-typedef struct RB_TypeDef {
-    uint8_t* buffer;
-    uint32_t mask;
-    uint32_t read_index;
-    uint32_t write_index;
+typedef struct __attribute__((packed)) RB_TypeDef {
+    uint8_t* Buffer;
+    uint32_t Mask;
+    uint32_t ReadIndex;
+    uint32_t WriteIndex;
 } RB_TypeDef;
 
-void RB_Init(RB_TypeDef* ring_buffer, uint8_t* buffer, uint32_t size);
-bool RB_Is_Empty(RB_TypeDef* ring_buffer);
-bool RB_Read(RB_TypeDef* ring_buffer, uint8_t* byte);
-// bool RB_Write(RB_TypeDef* ring_buffer, uint8_t byte);
-void RB_Sync_Write_Index(RB_TypeDef* ring_buffer, uint32_t dma_ndtr);
+void RING_BUFFER_Init(RB_TypeDef* pRingBuffer, uint8_t* pBuffer, uint32_t Size);
+bool RING_BUFFER_Is_Empty(RB_TypeDef* pRingBuffer);
+bool RING_BUFFER_Read(RB_TypeDef* pRingBuffer, uint8_t* pData);
+void RING_BUFFER_Sync_Write_Index(RB_TypeDef* pRingBuffer);
 
 #endif

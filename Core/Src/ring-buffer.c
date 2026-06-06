@@ -1,49 +1,37 @@
 #include "ring-buffer.h"
 
-void RB_Init(RB_TypeDef* ring_buffer, uint8_t* buffer, uint32_t size) {
-    ring_buffer->buffer = buffer;
-    ring_buffer->read_index = 0;
-    ring_buffer->write_index = 0;
-    ring_buffer->mask = size - 1;
+extern UART_HandleTypeDef huart2;
+
+void RING_BUFFER_Init(RB_TypeDef* pRingBuffer, uint8_t* pBuffer, uint32_t Size) {
+    pRingBuffer->Buffer = pBuffer;
+	pRingBuffer->Mask = Size - 1;
+    pRingBuffer->ReadIndex = 0;
+    pRingBuffer->WriteIndex = 0;
+    
 }
 
-bool RB_Is_Empty(RB_TypeDef* ring_buffer) {
-    return ring_buffer->read_index == ring_buffer->write_index;
+bool RING_BUFFER_Is_Empty(RB_TypeDef* pRingBuffer) {
+    return pRingBuffer->ReadIndex == pRingBuffer->WriteIndex;
 }
 
-bool RB_Read(RB_TypeDef* ring_buffer, uint8_t* byte) {
-    uint32_t local_read_index = ring_buffer->read_index;
-    uint32_t local_write_index = ring_buffer->write_index;
+bool RING_BUFFER_Read(RB_TypeDef* pRingBuffer, uint8_t* pData) {
+    uint32_t local_read_index = pRingBuffer->ReadIndex;
+    uint32_t local_write_index = pRingBuffer->WriteIndex;
 
     if (local_read_index == local_write_index) {
         return false;
     }
 
-    *byte = ring_buffer->buffer[local_read_index];
-    local_read_index = (local_read_index + 1) & ring_buffer->mask; // Round value back to zero if variable went to the end
-    ring_buffer->read_index = local_read_index;
+    *pData = pRingBuffer->Buffer[local_read_index];
+	// Round value back to zero if variable went to the end
+    local_read_index = (local_read_index + 1) & pRingBuffer->Mask;
+    pRingBuffer->ReadIndex = local_read_index;
     
     return true;
 }
 
-// bool RB_Write(RB_TypeDef* ring_buffer, uint8_t byte) {
-//     uint32_t local_write_index = ring_buffer->write_index;
-//     uint32_t local_read_index = ring_buffer->read_index;
-
-//     uint32_t next_wirte_index = (local_write_index + 1) & ring_buffer->mask; 
-
-//     if (next_wirte_index == local_read_index) {
-//         return false;
-//     }
-
-//     ring_buffer->buffer[local_write_index] = byte;
-//     ring_buffer->write_index = next_wirte_index;
-
-//     return true;
-// }
-
-void RB_Sync_Write_Index(RB_TypeDef* ring_buffer, uint32_t dma_ndtr) {
-    uint32_t size = ring_buffer->mask + 1; 
-    ring_buffer->write_index = size - dma_ndtr;
-    ring_buffer->write_index &= ring_buffer->mask; 
+void RING_BUFFER_Sync_Write_Index(RB_TypeDef* pRingBuffer) {
+    uint32_t size = pRingBuffer->Mask + 1; 
+    pRingBuffer->WriteIndex = size - __HAL_DMA_GET_COUNTER(huart2.hdmarx);
+    pRingBuffer->WriteIndex &= pRingBuffer->Mask; 
 }

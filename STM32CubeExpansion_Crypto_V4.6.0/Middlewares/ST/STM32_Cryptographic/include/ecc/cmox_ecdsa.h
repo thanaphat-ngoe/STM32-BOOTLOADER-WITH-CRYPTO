@@ -106,14 +106,16 @@ extern "C" {
   * @retval     CMOX_ECC_ERR_WRONG_RANDOM       Random material too short or not valid for the functionality
   * @retval     CMOX_ECC_ERR_MEMORY_FAIL        Not enough memory
   */
-cmox_ecc_retval_t cmox_ecdsa_keyGen(cmox_ecc_handle_t     *P_pEccCtx,
-                                    const cmox_ecc_impl_t P_CurveParams,
-                                    const uint8_t         *P_pRandom,
-                                    size_t                P_RandomLen,
-                                    uint8_t               *P_pPrivKey,
-                                    size_t                *P_pPrivKeyLen,
-                                    uint8_t               *P_pPubKey,
-                                    size_t                *P_pPubKeyLen);
+cmox_ecc_retval_t cmox_ecdsa_keyGen(
+	cmox_ecc_handle_t     *P_pEccCtx,
+	const cmox_ecc_impl_t P_CurveParams,
+	const uint8_t         *P_pRandom,
+	size_t                P_RandomLen,
+	uint8_t               *P_pPrivKey,
+	size_t                *P_pPrivKeyLen,
+	uint8_t               *P_pPubKey,
+	size_t                *P_pPubKeyLen
+);
 
 /**
   * @brief      Generate a signature, using ECDSA
@@ -184,16 +186,18 @@ cmox_ecc_retval_t cmox_ecdsa_keyGen(cmox_ecc_handle_t     *P_pEccCtx,
   * @retval     CMOX_ECC_ERR_WRONG_RANDOM       Random material too short or not valid for the functionality
   * @retval     CMOX_ECC_ERR_MEMORY_FAIL        Not enough memory
   */
-cmox_ecc_retval_t cmox_ecdsa_sign(cmox_ecc_handle_t     *P_pEccCtx,
-                                  const cmox_ecc_impl_t P_CurveParams,
-                                  const uint8_t         *P_pRandom,
-                                  size_t                P_RandomLen,
-                                  const uint8_t         *P_pPrivKey,
-                                  size_t                P_PrivKeyLen,
-                                  const uint8_t         *P_pDigest,
-                                  size_t                P_DigestLen,
-                                  uint8_t               *P_pSignature,
-                                  size_t                *P_pSignatureLen);
+cmox_ecc_retval_t cmox_ecdsa_sign(
+	cmox_ecc_handle_t     *P_pEccCtx,
+	const cmox_ecc_impl_t P_CurveParams,
+	const uint8_t         *P_pRandom,
+	size_t                P_RandomLen,
+	const uint8_t         *P_pPrivKey,
+	size_t                P_PrivKeyLen,
+	const uint8_t         *P_pDigest,
+	size_t                P_DigestLen,
+	uint8_t               *P_pSignature,
+	size_t                *P_pSignatureLen
+);
 
 /**
   * @brief      Verify a signature, using ECDSA
@@ -263,15 +267,17 @@ cmox_ecc_retval_t cmox_ecdsa_sign(cmox_ecc_handle_t     *P_pEccCtx,
   *             the success value, and not comparing the value with the failure value. Indeed, in presence of faults,
   *             especially P_pFaultCheck, could be a dirty value.
   */
-cmox_ecc_retval_t cmox_ecdsa_verify(cmox_ecc_handle_t     *P_pEccCtx,
-                                    const cmox_ecc_impl_t P_CurveParams,
-                                    const uint8_t         *P_pPubKey,
-                                    size_t                P_PubKeyLen,
-                                    const uint8_t         *P_pDigest,
-                                    size_t                P_DigestLen,
-                                    const uint8_t         *P_pSignature,
-                                    size_t                P_SignatureLen,
-                                    uint32_t              *P_pFaultCheck);
+cmox_ecc_retval_t cmox_ecdsa_verify(
+	cmox_ecc_handle_t     *P_pEccCtx,
+	const cmox_ecc_impl_t P_CurveParams,
+	const uint8_t         *P_pPubKey,
+	size_t                P_PubKeyLen,
+	const uint8_t         *P_pDigest,
+	size_t                P_DigestLen,
+	const uint8_t         *P_pSignature,
+	size_t                P_SignatureLen,
+	uint32_t              *P_pFaultCheck
+);
 
 /**
   * @}

@@ -229,10 +229,12 @@ extern const cmox_ecc_impl_t CMOX_ECC_SM2TEST_HIGHMEM;      /*!< OSCCA 256 bit t
   * @param[in]     P_pBuf     The preallocated static buffer that will be used
   * @param[in]     P_BufLen   The size in bytes of the P_pBuf buffer
   */
-void cmox_ecc_construct(cmox_ecc_handle_t        *P_pEccCtx,
-                        const cmox_math_funcs_t  P_Math,
-                        uint8_t                  *P_pBuf,
-                        size_t                   P_BufLen);
+void cmox_ecc_construct(
+	cmox_ecc_handle_t        *P_pEccCtx,
+	const cmox_math_funcs_t  P_Math,
+	uint8_t                  *P_pBuf,
+	size_t                   P_BufLen
+);
 
 /**
   * @brief         Clean the ECC context and the internal temporary buffer

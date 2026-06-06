@@ -25,24 +25,18 @@
 #include "crc8.h"
 #include "ring-buffer.h"
 #include "crypto.h"
-#include <stdint.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef struct TIMER_TypeDef {
-    uint32_t WAIT_TIME;
-    uint32_t TARGET_TIME;
-    bool AUTO_RESET;
-    bool HAS_ELAPSED;
-} TIMER_TypeDef;
-
 typedef enum AL_State_TypeDef {
-    AL_State_Sync,
-    AL_State_WaitForUpdateRequest,
-	AL_State_ReceiveFirmwareHeader,
+	AL_State_BootloaderMode,
+	AL_State_SyncronizeMode,
+	AL_State_WaitForFirmwareHeader,
+	AL_State_VerifyFirmwareHeader,
     AL_State_EraseFlash,
-    AL_State_ReceiveFirmware,
+	AL_State_WriteNewFirmwareHeader,
+    AL_State_WaitForFirmwareBody,
 	AL_State_VerifyFirmwareSignature,
     AL_State_Done
 } AL_State_TypeDef;
@@ -62,39 +56,39 @@ typedef void (*pFunction)(void);
 
 /* Private variables ---------------------------------------------------------*/
 CRC_HandleTypeDef hcrc;
-
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart2_rx;
 
 /* USER CODE BEGIN PV */
-static AL_State_TypeDef al_state = AL_State_Sync;
+static AL_State_TypeDef al_state = AL_State_BootloaderMode;
+
 static TL_Packet_TypeDef temp_packet;
 
 static TIMER_TypeDef timer;
-static uint32_t bytes_written = 0;
-static uint8_t sync_seq[4] = {0U};
 
 static RB_TypeDef ring_buffer = {
-	.buffer = 0,
-	.mask = 0,
-	.read_index = 0,
-	.write_index = 0
+	.Buffer = 0,
+	.Mask = 0,
+	.ReadIndex = 0,
+	.WriteIndex = 0
+};
+
+static FLASH_EraseInitTypeDef pEraseInit = {
+	.TypeErase   = FLASH_TYPEERASE_PAGES,
+	.PageAddress = FIRMWARE_IMAGE_START_ADDRESS,
+	.NbPages	 = 272
 };
 
 static uint8_t data_buffer[128] = {0U};
 
-static FLASH_EraseInitTypeDef pEraseInit = {
-	.TypeErase   = FLASH_TYPEERASE_PAGES,
-	.PageAddress = FIRMWARE_IMAGE_START_ADDRESS_BANK_2,
-	.NbPages	 = 176
-};
+static uint32_t bytes_written = 0;
 
 static uint32_t PageError = 0;
 
 static uint32_t firmware_header_byte_receive = 0;
 
-static FirmwareHeader_TypeDef* firmware_header_bank_1 = (FirmwareHeader_TypeDef*)(FIRMWARE_IMAGE_START_ADDRESS_BANK_1);
-static FirmwareHeader_TypeDef  firmware_header_bank_1_tmp = {0};
+static FirmwareHeader_TypeDef* ptr_existing_firmware_header = (FirmwareHeader_TypeDef*)(FIRMWARE_IMAGE_START_ADDRESS);
+static FirmwareHeader_TypeDef  tmp_new_firmware_header = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -105,9 +99,9 @@ static void MX_USART2_UART_Init(void);
 static void MX_CRC_Init(void);
 /* USER CODE BEGIN PFP */
 static void Main_Firmware(void);
-static void TIMER_Init(TIMER_TypeDef* timer, uint32_t WAIT_TIME, bool AUTO_RESET);
-static void TIMER_Reset(TIMER_TypeDef* timer);
-static bool TIMER_Is_Elapsed(TIMER_TypeDef* timer);
+static void TIMER_Init(TIMER_TypeDef* Timer, uint32_t WaitTime, bool AutoReset);
+static void TIMER_Reset(TIMER_TypeDef* Timer);
+static bool TIMER_Is_Elapsed(TIMER_TypeDef* Timer);
 
 // void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
 /* USER CODE END PFP */
@@ -151,9 +145,8 @@ int main(void)
  	/* USER CODE BEGIN 2 */
 	TIMER_Init(&timer, DEFAULT_TIMEOUT, false);
 	TL_Init();
-	RB_Init(&ring_buffer, data_buffer, 128);
-	// HAL_UART_Receive_IT(&huart2, uart_rx_temp, 1);
-	HAL_UART_Receive_DMA(&huart2, ring_buffer.buffer, 128);
+	RING_BUFFER_Init(&ring_buffer, data_buffer, 128);
+	HAL_UART_Receive_DMA(&huart2, ring_buffer.Buffer, 128);
   	/* USER CODE END 2 */
 
   	/* Infinite loop */
@@ -163,171 +156,214 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		if (al_state == AL_State_Sync) {
-			// ASK THE DMA HARDWARE HOW MANY BYTES ARE LEFT TO TRANSFER
-    		uint32_t current_ndtr = __HAL_DMA_GET_COUNTER(huart2.hdmarx);
-    		// SYNCHRONIZE OUR SOFTWARE write_index TO MATCH THE HARDWARE
-    		RB_Sync_Write_Index(&ring_buffer, current_ndtr);
-
-            if (!RB_Is_Empty(&ring_buffer)) {
-                sync_seq[0] = sync_seq[1];
-                sync_seq[1] = sync_seq[2];
-                sync_seq[2] = sync_seq[3];
-				RB_Read(&ring_buffer, &sync_seq[3]);
-
-                bool is_match = sync_seq[0] == SYNC_SEQ_0;
-                is_match = is_match && (sync_seq[1] == SYNC_SEQ_1);
-                is_match = is_match && (sync_seq[2] == SYNC_SEQ_2);
-                is_match = is_match && (sync_seq[3] == SYNC_SEQ_3);
-            
-                if (is_match) {
-                    TL_PACKET_Create_Message(&temp_packet, AL_MESSAGE_SEQUENCE_OBSERVED);
-                    TL_Write(&temp_packet);
-					TIMER_Reset(&timer);
-                    al_state = AL_State_WaitForUpdateRequest;
-                } else {
-                    if (TIMER_Is_Elapsed(&timer)) {
-                        al_state = AL_State_Done;
-                        continue;
-                    } else {
-                        continue;
-                    }
-                }
-            } else {
-                if (TIMER_Is_Elapsed(&timer)) {
-                    al_state = AL_State_Done;
-                    continue;
-                } else {
-                    continue;
-                }
+		while (!TL_Update(&ring_buffer)) 
+		{
+			if (TIMER_Is_Elapsed(&timer)) 
+            {
+                al_state = AL_State_Done; 
+                break;
             }
-        }
+		}
 
-        TL_Update(&ring_buffer);
-
-        switch (al_state) {
-            case AL_State_WaitForUpdateRequest: {
-                if (TL_IS_Packet_Available()) {
+        switch (al_state) 
+		{
+			case AL_State_BootloaderMode: 
+			{
+				TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_BOOTLOADER_MODE);
+                TL_Write(&temp_packet, true);
+                TIMER_Reset(&timer);
+                al_state = AL_State_SyncronizeMode;
+			} 
+			break;
+			
+			case AL_State_SyncronizeMode:
+			{
+                if (TL_Is_Packet_Available()) 
+                {
                     TL_Read(&temp_packet);
-
-                    if (TL_PACKET_VALIDATE_Message_Type(&temp_packet, AL_MESSAGE_FIRMWARE_UPDATE_REQUEST)) {
-						uint8_t temp[8] = {0};
-						memcpy(&temp[0], &firmware_header_bank_1->DeviceID, sizeof(uint32_t));
-						memcpy(&temp[4], &firmware_header_bank_1->Version, sizeof(uint32_t));
-						TL_PACKET_Create_MultiByte_Message(&temp_packet, temp, 8, AL_MESSAGE_SENT_CURRENT_FIRMWARE_VERSION);
-                        TL_Write(&temp_packet);
-                        al_state = AL_State_ReceiveFirmwareHeader;
-                    } else {
-                        continue;
+                    if (TL_Verify_Command_Packet(&temp_packet, AL_MESSAGE_SYNCHRONIZE_MODE)) 
+                    {
+                        TIMER_Reset(&timer);
+                        al_state = AL_State_WaitForFirmwareHeader;
                     }
-                } else {
-                    continue;
-                }
-            } break;
-
-			case AL_State_ReceiveFirmwareHeader: {
-				if (TL_IS_Packet_Available()) {
-                    TL_Read(&temp_packet);
-
-                    if (TL_PACKET_VALIDATE_Message_Type(&temp_packet, AL_MESSAGE_SENT_NEW_FIRMWARE_HEADER_DATA)) {
-						memcpy((uint8_t*)(&firmware_header_bank_1_tmp) + firmware_header_byte_receive, &temp_packet.data[0], PACKET_DATA_BYTE_SIZE);
-						TL_PACKET_Create_MultiByte_Message(
-							&temp_packet, 
-							(uint8_t*)(&firmware_header_bank_1_tmp) + firmware_header_byte_receive, 
-							PACKET_DATA_BYTE_SIZE,
-							AL_MESSAGE_RECEIVED_NEW_FIRMWARE_HEADER_DATA
-						);
-                        TL_Write(&temp_packet);
-						firmware_header_byte_receive = firmware_header_byte_receive + PACKET_DATA_BYTE_SIZE;
-						if (firmware_header_byte_receive == sizeof(FirmwareHeader_TypeDef)) {
-							al_state = AL_State_EraseFlash;
-						} else {
-							continue;
-						}
-                    } else {
-                        continue;
-                    }
-                } else {
-                    continue;
+                } 
+                else if (TIMER_Is_Elapsed(&timer)) 
+                {
+                    al_state = AL_State_Done; 
                 }
 			} break;
 
+			case AL_State_WaitForFirmwareHeader: 
+			{
+				if (TL_Is_Packet_Available()) 
+                {
+                    TIMER_Reset(&timer);
+
+                    TL_Read(&temp_packet);
+                    if (TL_Verify_Command_Packet(&temp_packet, AL_MESSAGE_SENT_NEW_FIRMWARE_HEADER)) 
+                    {
+                        memcpy((uint8_t*)(&tmp_new_firmware_header) + firmware_header_byte_receive, temp_packet.PacketData, PACKET_DATA_BYTE_SIZE);
+                        firmware_header_byte_receive = firmware_header_byte_receive + PACKET_DATA_BYTE_SIZE;
+                    }
+                    else
+                    {
+                        TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_ABORT_OPERATION);
+                        TL_Write(&temp_packet, false);
+                        al_state = AL_State_Done;
+                        continue;
+                    }
+                    
+                    if (firmware_header_byte_receive == sizeof(FirmwareHeader_TypeDef)) 
+                    {
+                        al_state = AL_State_VerifyFirmwareHeader;
+                    } 
+                    else 
+                    {
+                        continue;
+                    }
+                } 
+                else if (TIMER_Is_Elapsed(&timer)) 
+                {
+                    al_state = AL_State_Done;
+                }
+			} break;
+
+			case AL_State_VerifyFirmwareHeader: 
+			{
+				if (tmp_new_firmware_header.MagicNumber != MAGIC_NUMBER) 
+				{
+					TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_ABORT_OPERATION);
+					TL_Write(&temp_packet, false);
+					al_state = AL_State_Done;
+					continue;
+				}
+
+				if (tmp_new_firmware_header.DeviceID != DEVICE_ID) 
+				{
+					TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_ABORT_OPERATION);
+					TL_Write(&temp_packet, false);
+					al_state = AL_State_Done;
+					continue;
+				}
+
+				if (!(tmp_new_firmware_header.Version > ptr_existing_firmware_header->Version)) 
+				{
+					TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_ABORT_OPERATION);
+					TL_Write(&temp_packet, false);
+					al_state = AL_State_Done;
+					continue;
+				}
+
+				if (tmp_new_firmware_header.Size > (MAX_FIRMWARE_IMAGE_SIZE - sizeof(FirmwareHeader_TypeDef))) 
+				{
+					TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_ABORT_OPERATION);
+					TL_Write(&temp_packet, false);
+					al_state = AL_State_Done;
+					continue;
+				} 
+
+				if ((tmp_new_firmware_header.Size % 4) != 0) 
+				{
+					TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_ABORT_OPERATION);
+					TL_Write(&temp_packet, false);
+					al_state = AL_State_Done;
+					continue;
+				}
+
+				for (uint8_t i = 0; i < 44; i++) 
+				{
+					if (tmp_new_firmware_header.Reserved[i] != 0xFFFFFFFF) 
+					{ 
+						TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_ABORT_OPERATION);
+						TL_Write(&temp_packet, false);
+						al_state = AL_State_Done;
+						continue;
+					} 
+				} 
+
+				TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_VERIFIED_NEW_FIRMWARE_HEADER);
+                TL_Write(&temp_packet, true);
+                TIMER_Reset(&timer); 
+                al_state = AL_State_EraseFlash;
+			} break;
+
             case AL_State_EraseFlash: {
-				uint32_t* firmware_header_bank_1_tmp_ptr = (uint32_t*)&firmware_header_bank_1_tmp;
-                uint32_t word_count = sizeof(FirmwareHeader_TypeDef) / 4;
                 HAL_FLASH_Unlock();
                 HAL_FLASHEx_Erase(&pEraseInit, &PageError);
-				for (uint32_t i = 0; i < word_count; i++) {
-                    HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FIRMWARE_IMAGE_START_ADDRESS_BANK_2 + (i * 4), firmware_header_bank_1_tmp_ptr[i]);
-                }
                 HAL_FLASH_Lock();
-				TL_PACKET_Create_Message(&temp_packet, AL_MESSAGE_FIRMWARE_HEADER_WRITTEN);
-                TL_Write(&temp_packet);
-				al_state = AL_State_ReceiveFirmware; 
+				TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_ERASED_FLASH);
+                TL_Write(&temp_packet, true);
+				TIMER_Reset(&timer);
+				al_state = AL_State_WriteNewFirmwareHeader; 
             } break;
 
-            case AL_State_ReceiveFirmware: {
-                if (TL_IS_Packet_Available()) {
-                    TL_Read(&temp_packet);
+			case AL_State_WriteNewFirmwareHeader: {
+                HAL_FLASH_Unlock();
+				for (uint32_t i = 0; i < sizeof(FirmwareHeader_TypeDef) / 4; i++) {
+                    HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FIRMWARE_IMAGE_START_ADDRESS + (i * 4), *(((uint32_t*)&tmp_new_firmware_header) + i));
+                }
+                HAL_FLASH_Lock();
+				TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_WROTE_NEW_FIRMWARE_HEADER);
+                TL_Write(&temp_packet, true);
+				TIMER_Reset(&timer);
+				al_state = AL_State_WaitForFirmwareBody; 
+			} break;
+
+            case AL_State_WaitForFirmwareBody: {
+                if (TL_Is_Packet_Available()) {
+					TIMER_Reset(&timer);
                     
-                    for (uint8_t i = 0; i < temp_packet.packet_data_size; i = i + 4) {
-                        uint32_t firmware_data = (
-                            (temp_packet.data[i])           |
-                            (temp_packet.data[i + 1] << 8)  |
-                            (temp_packet.data[i + 2] << 16) |
-                            (temp_packet.data[i + 3] << 24) 
-                        );
-                        HAL_FLASH_Unlock();
-                        HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FIRMWARE_ENTRY_POINT_ADDRESS_BANK_2 + bytes_written, firmware_data);
-                        HAL_FLASH_Lock();
-                        bytes_written += 4;
-                    }
+					TL_Read(&temp_packet);
+					uint32_t firmware_data = (
+						(temp_packet.PacketData[0])       |
+						(temp_packet.PacketData[1] << 8)  |
+						(temp_packet.PacketData[2] << 16) |
+						(temp_packet.PacketData[3] << 24) 
+					);
+					HAL_FLASH_Unlock();
+					HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FIRMWARE_ENTRY_POINT_ADDRESS + bytes_written, firmware_data);
+					HAL_FLASH_Lock();
+					bytes_written += 4;
                     
-                    if (bytes_written == firmware_header_bank_1_tmp.Size) {
+                    if (bytes_written == tmp_new_firmware_header.Size) {
 						bytes_written = 0;
                    	 	al_state = AL_State_VerifyFirmwareSignature;
-                    } else {
-                        TL_PACKET_Create_Message(&temp_packet, AL_MESSAGE_RECEIVED_NEW_FIRMWARE_DATA);
-                        TL_Write(&temp_packet);
                     }
-                } else {
-                    continue;
+                }
+                else if (TIMER_Is_Elapsed(&timer)) 
+                {
+					HAL_FLASH_Unlock();
+					HAL_FLASHEx_Erase(&pEraseInit, &PageError);
+					HAL_FLASH_Lock();
+                    al_state = AL_State_Done;
                 }
             } break;
 
 			case AL_State_VerifyFirmwareSignature: {
-				if (Verify_Firmware_Signature(FIRMWARE_IMAGE_START_ADDRESS_BANK_2)) {
-					HAL_FLASH_Unlock();
-					pEraseInit.PageAddress = FIRMWARE_IMAGE_START_ADDRESS_BANK_1;
-                	HAL_FLASHEx_Erase(&pEraseInit, &PageError);
-					for (uint32_t i = 0; i < MAX_FIRMWARE_IMAGE_SIZE / 4; i++) {
-						uint32_t firmware_data = *(((uint32_t*)FIRMWARE_IMAGE_START_ADDRESS_BANK_2) + i);
-						HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FIRMWARE_IMAGE_START_ADDRESS_BANK_1 + bytes_written, firmware_data);
-						bytes_written += 4;
-					}
-					pEraseInit.PageAddress = FIRMWARE_IMAGE_START_ADDRESS_BANK_2;
-					HAL_FLASHEx_Erase(&pEraseInit, &PageError);
-					HAL_FLASH_Lock();
-					TL_PACKET_Create_Message(&temp_packet, AL_MESSAGE_UPDATE_SUCCESSFUL);
-                	TL_Write(&temp_packet);
+				if (Verify_Firmware_Signature(FIRMWARE_IMAGE_START_ADDRESS)) {
+					TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_UPDATE_SUCCESSFUL);
+                	TL_Write(&temp_packet, true);
                     al_state = AL_State_Done;
 				} else {
-					pEraseInit.PageAddress = FIRMWARE_IMAGE_START_ADDRESS_BANK_2;
 					HAL_FLASH_Unlock();
                 	HAL_FLASHEx_Erase(&pEraseInit, &PageError);
 					HAL_FLASH_Lock();
-					TL_PACKET_Create_Message(&temp_packet, AL_MESSAGE_NACK);
-                	TL_Write(&temp_packet);
+					TL_Create_Command_Packet(&temp_packet, AL_MESSAGE_ABORT_OPERATION);
+                	TL_Write(&temp_packet, true);
                     al_state = AL_State_Done;
 				}
 			} break;
 
-            default: {
-                al_state = AL_State_Sync;
-            }
+			case AL_State_Done: {
+				break;
+			}
+
+			default: {
+				al_state = AL_State_BootloaderMode;
+			}
         }
 	}
-
+	
 	HAL_Delay(1000);
 	Main_Firmware();
   	/* USER CODE END 3 */
@@ -501,8 +537,9 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-static void Main_Firmware(void) {
-	VectorTable_TypeDef* vector_table = (VectorTable_TypeDef*)FIRMWARE_ENTRY_POINT_ADDRESS_BANK_1;
+static void Main_Firmware(void) 
+{
+	VectorTable_TypeDef* vector_table = (VectorTable_TypeDef*)FIRMWARE_ENTRY_POINT_ADDRESS;
 	__HAL_RCC_DMA1_CLK_ENABLE();
     __disable_irq();
     HAL_DeInit();
@@ -510,34 +547,38 @@ static void Main_Firmware(void) {
     vector_table->Reset_Handler();
 }
 
-static void TIMER_Init(TIMER_TypeDef* timer, uint32_t WAIT_TIME, bool AUTO_RESET) {
-    timer->WAIT_TIME = WAIT_TIME;
-    timer->AUTO_RESET = AUTO_RESET;
-    timer->TARGET_TIME = HAL_GetTick() + WAIT_TIME;
-    timer->HAS_ELAPSED = false;
+static void TIMER_Init(TIMER_TypeDef* Timer, uint32_t WaitTime, bool AutoReset) 
+{
+    Timer->WaitTime = WaitTime;
+    Timer->AutoReset = AutoReset;
+    Timer->TargetTime = HAL_GetTick() + WaitTime;
+    Timer->HasElapsed = false;
 }
 
-static void TIMER_Reset(TIMER_TypeDef* timer) {
-    TIMER_Init(timer, timer->WAIT_TIME, timer->AUTO_RESET);
+static void TIMER_Reset(TIMER_TypeDef* Timer) 
+{
+    TIMER_Init(Timer, Timer->WaitTime, Timer->AutoReset);
 }
 
-static bool TIMER_Is_Elapsed(TIMER_TypeDef* timer) {
+static bool TIMER_Is_Elapsed(TIMER_TypeDef* Timer) 
+{
     uint32_t now = HAL_GetTick();
-    bool HAS_ELAPSED = now >= timer->TARGET_TIME;
+    bool IsElapsed = now >= Timer->TargetTime;
 
-    if (timer->HAS_ELAPSED) return false;
+    if (Timer->HasElapsed) return false;
 
-    if (HAS_ELAPSED) {
-        if (timer->AUTO_RESET) {
-            uint32_t drift = now - timer->TARGET_TIME;
-            timer->TARGET_TIME = (now + timer->WAIT_TIME) - drift;
+    if (IsElapsed) {
+        if (Timer->AutoReset) {
+            uint32_t drift = now - Timer->TargetTime;
+            Timer->TargetTime = (now + Timer->WaitTime) - drift;
         } else {
-            timer->HAS_ELAPSED = true;
+            Timer->HasElapsed = true;
         }
     }
     
-    return HAS_ELAPSED;
+    return IsElapsed;
 }
+
 /* USER CODE END 4 */
 
 /**
